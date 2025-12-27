@@ -1,7 +1,8 @@
-# RedDuck 🦆⚡
-**A high-performance, zero-dependency Redis connector for DuckDB.**
+<img width="1280" height="320" alt="RedDuck" src="https://github.com/user-attachments/assets/24fc1401-2cbd-4c20-a7cb-aa2c4a83ee91" />
 
-RedDuck is a custom C++ extension that allows DuckDB to query live Redis data directly. It bridges the gap between real-time operational data (OLTP) and analytical processing (OLAP) without the need for ETL pipelines.
+### **A high-performance, zero-dependency Redis connector for DuckDB.**
+
+RedDuck is a custom C++ extension that allows DuckDB to query live Redis data directly.
 
 Unlike standard connectors that rely on heavy client libraries (like `hiredis`), RedDuck implements a **custom-built RESP (Redis Serialization Protocol) parser** and raw TCP network layer from scratch. This was designed to maximize control over memory allocation and network buffer management, with the goal of outperforming standard connector latency.
 
