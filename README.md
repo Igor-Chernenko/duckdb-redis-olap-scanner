@@ -4,7 +4,7 @@
 
 RedDuck is a custom C++ extension that allows DuckDB to query live Redis data directly.
 
-Unlike standard connectors that rely on heavy client libraries (like `hiredis`), RedDuck implements a **custom-built RESP (Redis Serialization Protocol) parser** and raw TCP network layer from scratch. This was designed to maximize control over memory allocation and network buffer management, with the goal of outperforming standard connector latency.
+Unlike standard connectors that rely on heavy client libraries (like `hiredis`), RedDuck implements a **custom-built RESP (Redis Serialization Protocol) parser** and low-level TCP socket implementation from scratch. This was designed to maximize control over memory allocation and network buffer management, with the goal of outperforming standard connector latency.
 
 ```sql
 LOAD redduck;
