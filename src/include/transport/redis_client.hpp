@@ -1,8 +1,12 @@
-#ifndef DUCKDB_REDIS_CLIENT_HPP
-#define DUCKDB_REDIS_CLIENT_HPP
+/*
+redis_client.hpp
+
+
+*/
+#ifndef REDIS_CLIENT_HPP
+#define REDIS_CLIENT_HPP
 
 #include "socket_os.hpp"
-#include "resp_parser.hpp"
 
 #include <string>
 #include <vector>
@@ -43,6 +47,10 @@ private:
 
 public:
 
+  std::string host = "127.0.0.1";
+  int port = 6379;
+  float connection_timeout = 5;
+
   // Constructor: allocates the empty buffer.
   RedisClient();
   // Destructor: calls CLOSE_SOCKET()
@@ -53,7 +61,7 @@ public:
     - Takes standard C-strings (char*) to be compatible with DuckDB's internal strings.
     - Returns true if the handshake succeeded.
   */
-  bool Connect(const char* host, int port);
+  bool Connect();
 
   // Manually closes the connection.
   void Disconnect();
@@ -68,4 +76,4 @@ public:
   bool CheckedReadResponse();
 };
 
-#endif // DUCKDB_REDIS_CLIENT_HPP
+#endif // REDIS_CLIENT_HPP

@@ -73,6 +73,17 @@ RespObject RespParser::ParseNext(const char*& cursor, const char* end) {
       obj.str_view.ptr = cursor;
       break;
     }
+    case '-': {
+      obj.type = RespType::ERROR;
+      const char* line_end = std::strstr(cursor, "\r\n");
+      if (!line_end || line_end > end) throw std::runtime_error("Incomplete buffer");
+
+      obj.str_view.ptr = cursor;
+      obj.str_view.len = line_end - cursor;
+
+      cursor = line_end + 2;
+      break;
+    }
     case '(':{
       obj.type = RespType::BIG_NUMBER;
       // Treat BigNumber the same as simple string
