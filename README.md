@@ -36,13 +36,6 @@ SELECT key, redis_get(key) FROM redis_keys('pattern');
 SELECT key, redis_hgetall(key) as user_data 
 FROM redis_scan('pattern');
 ```
-### 4. Raw Command Execution
-Send commands directly to Redis via the raw RESP interface
-```sql
--- Example: Fetch the 'status' field from order Hashes
-SELECT key, redis_raw('HGET', key, 'status') as order_status
-FROM redis_scan('order:*');
-```
 
 --- 
 ## Primary Learning Goals:
