@@ -1,6 +1,3 @@
-#ifndef DUCKDB_REDIS_PARSER_HPP
-#define DUCKDB_REDIS_PARSER_HPP
-
 #pragma once
 #include <string>
 #include <vector>
@@ -52,6 +49,9 @@ public:
   void ParseBuffer(const char* buffer, size_t length);
   std::vector<RespObject> GetObjects();
   void PrintResp(const RespObject& obj, int indent = 0);
+  std::string BuildScan(const std::string& cursor, const std::string& pattern);
+  void SqlToResp(std::string &query);
+  void ClearObjects() { RespObjects.clear(); }
 private:
   std::vector<RespObject> RespObjects;
 
@@ -62,4 +62,3 @@ private:
   void PrintIndent(int indent);
 
 };
-#endif // DUCKDB_REDIS_PARSER_HPP

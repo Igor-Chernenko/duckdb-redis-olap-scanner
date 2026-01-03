@@ -1,12 +1,8 @@
-/*
-redis_client.hpp
-
-
-*/
 #ifndef REDIS_CLIENT_HPP
 #define REDIS_CLIENT_HPP
 
-#include "socket_os.hpp"
+#include "transport/socket_os.hpp"
+#include "transport/resp_parser.hpp"
 
 #include <string>
 #include <vector>
@@ -22,9 +18,6 @@ private:
   bool is_connected;
 
   /*
-  Instead of creating new strings for every packet,
-  we keep one big chunk of memory alive
-
      - buffer: Pointer to the start of the memory block
      - capacity: How big the block is
      - offset: Where we are currently writing in the buffer
@@ -32,18 +25,13 @@ private:
   char* buffer;
   size_t buffer_capacity;
   size_t current_offset;
+  std::string query;
 
   /*
     Grow buffer if a Redis response is larger than the buffer
   */
   void EnsureBufferSize(size_t needed_size);
 
-  /*
-  Reads the raw bytes back from the socket.
-    - Returns a pointer to the internal 'buffer'.
-    - Returns how long the data is (size_t)
-  */
-  std::pair<char*, size_t> ReadResponse();
 
 public:
 
@@ -61,19 +49,22 @@ public:
     - Takes standard C-strings (char*) to be compatible with DuckDB's internal strings.
     - Returns true if the handshake succeeded.
   */
-  bool Connect();
+  bool Connect(const char* host, int port);
 
   // Manually closes the connection.
   void Disconnect();
 
-  bool SendCommand(const std::vector<std::string>& args);
 
+  std::vector<std::string_view> RedisScan(std::string& query, RespParser& resp_parser);
   /*
   Reads the raw bytes back from the socket.
     - Returns a pointer to the internal 'buffer'.
     - Returns how long the data is (size_t)
   */
-  bool CheckedReadResponse();
+  std::vector<RespObject> CheckedReadResponse(RespParser& resp_parser);
+  bool CheckedSend(const std::string& package);
+
+  void ClearBuffer();
 };
 
 #endif // REDIS_CLIENT_HPP
