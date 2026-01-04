@@ -30,7 +30,7 @@ Fetch values efficiently using vectorized execution.
 SELECT * FROM redis_kv('pattern');
 
 -- Retrieve simple string values for specific keys
-SELECT key, redis_get(key) FROM redis_keys('pattern');
+SELECT key, redis_get(key) FROM redis_scan('pattern');
 
 -- Retrieve and expand Redis Hashes into DuckDB STRUCTs
 SELECT key, redis_hgetall(key) as user_data 
