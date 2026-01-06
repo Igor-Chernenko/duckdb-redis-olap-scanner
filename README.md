@@ -1,4 +1,5 @@
-<img width="1280" height="320" alt="RedDuck" src="https://github.com/user-attachments/assets/24fc1401-2cbd-4c20-a7cb-aa2c4a83ee91" />
+
+<img width="1280" height="320" alt="RedDuck(1)" src="https://github.com/user-attachments/assets/86825bc7-9852-40f3-a974-2c0fd4f04a83" />
 
 ### **A high-performance, zero-dependency Redis connector for DuckDB.**
 
@@ -36,6 +37,10 @@ SELECT key, redis_get(key) FROM redis_scan('pattern');
 SELECT key, redis_hgetall(key) as user_data 
 FROM redis_scan('pattern');
 ```
+
+## RedDuck Demo
+
+<img width="600" height="750" alt="redduck dem" src="https://github.com/user-attachments/assets/0f7241b3-3c12-41ef-b68e-383354b59e73" />
 
 --- 
 ## Primary Learning Goals:
