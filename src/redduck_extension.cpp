@@ -38,11 +38,20 @@ inline void SetNameScalarFun(DataChunk &args, ExpressionState &state, Vector &re
 		return StringVector::AddString(result, "name is set");
 	});
 }
-//--set connection function -----------------------------------------------------------------------------------------------------------
-RedisClient RedisClient;
-std::mutex client_mutex;
+// -------------------------------------------------------------------------------------------------
+//  redis_scan('address:port') scalar function
+// -------------------------------------------------------------------------------------------------
+RedisClient ScanClient;
+RedisClient GetClient;
+
+std::mutex scan_mutex;
+std::mutex get_mutex;
+
+//shared config
+std::string redis_host = "127.0.0.1";
+int redis_port = 6379;
+
 inline void SetAddressScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
-	std::scoped_lock<std::mutex> lock(client_mutex);
     auto &input_vector = args.data[0];
 
     // If the user tries: SELECT redis_connect(my_col) FROM table; This triggers FLAT_VECTOR
@@ -80,12 +89,26 @@ inline void SetAddressScalarFun(DataChunk &args, ExpressionState &state, Vector 
         throw duckdb::InvalidInputException("Port must be a valid number");
     }
 
-    RedisClient.host = host_str;
-    RedisClient.port = port_int;
-	bool conn_result = RedisClient.Connect(RedisClient.host.c_str(), RedisClient.port);
-	if (!conn_result) {
-		throw duckdb::InvalidInputException("Connection failed");
+	{
+    	std::scoped_lock lock(scan_mutex, get_mutex);
+
+    	redis_host = host_str;
+    	redis_port = port_int;
+
+    	ScanClient.host = redis_host;
+    	ScanClient.port = redis_port;
+
+    	GetClient.host = redis_host;
+    	GetClient.port = redis_port;
+
+    	if (!ScanClient.Connect(redis_host.c_str(), redis_port)) {
+    		throw InvalidInputException("Connection failed (scan client)");
+    	}
+    	if (!GetClient.Connect(redis_host.c_str(), redis_port)) {
+    		throw InvalidInputException("Connection failed (get client)");
+    	}
 	}
+
     result.SetVectorType(VectorType::CONSTANT_VECTOR);
     auto result_data = ConstantVector::GetData<string_t>(result);
 
@@ -116,18 +139,12 @@ struct RedisScanBindData : public FunctionData {
 };
 
 struct RedisScanGlobalState : public GlobalTableFunctionState {
-	// Cursor for Redis SCAN (string form, because RESP cursor is returned as bulk string)
 	std::string cursor = "0";
 	bool done = false;
 
-	// Current batch of keys (string_views INTO RedisClient's buffer)
-	std::vector<std::string_view> batch_keys;
+	std::vector<std::string> batch_keys;
 	idx_t batch_pos = 0; // next index inside batch_keys to output
 
-	// We hold the mutex lock for the entire scan so:
-	//   - nobody else can reuse/clear the RedisClient buffer while we're holding string_views into it
-	//   - nobody else can send concurrent commands over the same socket
-	std::unique_lock<std::mutex> lock;
 
 	// Parser object is kept here so we can reuse allocations.
 	RespParser parser;
@@ -142,36 +159,26 @@ struct RedisScanGlobalState : public GlobalTableFunctionState {
 		// On query end, it's safe to release all parsed objects and reuse the buffer.
 		// (DuckDB will not call us anymore after destruction.)
 		parser.ClearObjects();
-		RedisClient.ClearBuffer();
+		ScanClient.ClearBuffer();
 	}
 };
 
 static void FetchNextBatch(RedisScanGlobalState &state, const std::string &pattern) {
-	// We only call this when the previous batch has been fully consumed.
-	// That means it's safe to reuse the RedisClient buffer.
 
 	state.batch_keys.clear();
 	state.batch_pos = 0;
 
-	// IMPORTANT:
-	//  - Clear parser objects so GetObjects() only sees the new response
-	//  - Clear the RedisClient buffer so the new response starts at offset 0
 	state.parser.ClearObjects();
-	RedisClient.ClearBuffer();
+	ScanClient.ClearBuffer();
 
-	// Redis *can* return empty batches (keys array empty) while cursor != "0".
-	// If we returned a 0-row chunk to DuckDB, DuckDB would interpret "scan finished".
-	// So: loop until we either get at least 1 key, OR Redis says cursor == "0".
 	for (;;) {
 		std::string cmd = state.parser.BuildScan(state.cursor, pattern);
 
-		if (!RedisClient.CheckedSend(cmd)) {
+		if (!ScanClient.CheckedSend(cmd)) {
 			throw InvalidInputException("redis_scan: send failed");
 		}
 
-		// This parses the response into state.parser's internal object list.
-		// NOTE: with your current transport/parser, this assumes the response arrives in one recv().
-		RedisClient.CheckedReadResponse(state.parser);
+		ScanClient.CheckedReadResponse(state.parser);
 
 		// Get parsed objects (your API returns by value; fine for now).
 		auto objects = state.parser.GetObjects();
@@ -179,8 +186,6 @@ static void FetchNextBatch(RedisScanGlobalState &state, const std::string &patte
 			throw InvalidInputException("redis_scan: parsed 0 objects (incomplete/invalid RESP?)");
 		}
 
-		// We expect exactly one top-level reply for SCAN: an ARRAY of size 2.
-		// But to be defensive, take the last parsed object.
 		const RespObject &reply = objects.back();
 
 		if (reply.type != RespType::ARRAY || reply.children.size() < 2) {
@@ -189,14 +194,13 @@ static void FetchNextBatch(RedisScanGlobalState &state, const std::string &patte
 		const RespObject &cursor_obj = reply.children[0];
 		const RespObject &keys_obj = reply.children[1];
 
-		// Copy cursor OUT of the Redis buffer into state.cursor (owned memory),
-		// because we're going to ClearBuffer() between batches.
 		std::string_view next_cursor_view = cursor_obj.AsString();
 		state.cursor.assign(next_cursor_view.data(), next_cursor_view.size());
 
 		if (keys_obj.type == RespType::ARRAY) {
 			for (const auto &child : keys_obj.children) {
-				state.batch_keys.push_back(child.AsString());
+				auto sv = child.AsString();
+				state.batch_keys.emplace_back(sv.data(), sv.size());
 			}
 		} else {
 			throw InvalidInputException("redis_scan: keys element was not an array");
@@ -219,7 +223,7 @@ static void FetchNextBatch(RedisScanGlobalState &state, const std::string &patte
 
 		// Otherwise: no keys but still not done, so reuse memory and try next cursor.
 		state.parser.ClearObjects();
-		RedisClient.ClearBuffer();
+		ScanClient.ClearBuffer();
 	}
 }
 
@@ -245,13 +249,14 @@ unique_ptr<FunctionData> RedisScanBind(
 }
 
 unique_ptr<GlobalTableFunctionState> RedisScanInit(ClientContext &, TableFunctionInitInput &input) {
+	auto state = make_uniq<RedisScanGlobalState>();
 	auto &bind = input.bind_data->Cast<RedisScanBindData>();
 
-	auto state = make_uniq<RedisScanGlobalState>();
-	state->lock = std::unique_lock<std::mutex>(client_mutex);
-
-	if (!RedisClient.Connect(RedisClient.host.c_str(), RedisClient.port)) {
-		throw InvalidInputException("redis_scan: not connected (redis_connect failed)");
+	{
+		std::scoped_lock<std::mutex> lock(scan_mutex);
+		if (!ScanClient.Connect(ScanClient.host.c_str(), ScanClient.port)) {
+			throw InvalidInputException("redis_scan: not connected (redis_connect failed)");
+		}
 	}
 
 	// Start scan at cursor "0"
@@ -267,6 +272,7 @@ unique_ptr<GlobalTableFunctionState> RedisScanInit(ClientContext &, TableFunctio
 }
 
 void RedisScanFunc(ClientContext &, TableFunctionInput &data_p, DataChunk &output) {
+	std::scoped_lock<std::mutex> lock(scan_mutex);
 	auto &bind = data_p.bind_data->Cast<RedisScanBindData>();
 	auto &state = data_p.global_state->Cast<RedisScanGlobalState>();
 
@@ -311,20 +317,47 @@ void RedisScanFunc(ClientContext &, TableFunctionInput &data_p, DataChunk &outpu
 		state.batch_pos = 0;
 
 		state.parser.ClearObjects();
-		RedisClient.ClearBuffer();
+		ScanClient.ClearBuffer();
 	}
 }
+// -------------------------------------------------------------------------------------------------
+//  redis_get('key') scalar function
+// -------------------------------------------------------------------------------------------------
+
+inline void GetKeyScalarFun(DataChunk &args, ExpressionState &, Vector &result) {
+	RespParser parser;                 // ok per-call
+	auto &input_vector = args.data[0];
+
+	UnaryExecutor::Execute<string_t, string_t>(
+	    input_vector, result, args.size(),
+	    [&](string_t key) {
+		std::string_view sv;
+		{
+		    std::scoped_lock<std::mutex> lock(get_mutex);
+		    sv = GetClient.RedisGet(key.GetString(), parser);
+		    return StringVector::AddString(result, sv.data(), sv.size());
+		}
+	    }
+	);
+}
+
+
+// -------------------------------------------------------------------------------------------------
+//  SETUP
+// -------------------------------------------------------------------------------------------------
 static void LoadInternal(ExtensionLoader &loader) {
 	// Register a scalar function
 	auto redduck_scalar_function = ScalarFunction("redduck", {LogicalType::VARCHAR}, LogicalType::VARCHAR, RedduckScalarFun);
 	auto set_name_scalar_function = ScalarFunction("set_name", {LogicalType::VARCHAR}, LogicalType::VARCHAR, SetNameScalarFun);
 	auto set_address_scalar_function = ScalarFunction("redis_connect", {LogicalType::VARCHAR}, LogicalType::VARCHAR, SetAddressScalarFun);
+	auto get_key_scalar_function = ScalarFunction("redis_get", {LogicalType::VARCHAR}, LogicalType::VARCHAR, GetKeyScalarFun);
 	// Register table functions
 	TableFunction scan_func("redis_scan", {LogicalType::VARCHAR}, RedisScanFunc, RedisScanBind, RedisScanInit);
 
 	loader.RegisterFunction(redduck_scalar_function);
 	loader.RegisterFunction(set_name_scalar_function);
 	loader.RegisterFunction(set_address_scalar_function);
+	loader.RegisterFunction(get_key_scalar_function);
 	loader.RegisterFunction(scan_func);
 }
 
@@ -348,6 +381,7 @@ std::string RedduckExtension::Version() const {
 extern "C" {
 
 DUCKDB_CPP_EXTENSION_ENTRY(redduck, loader) {
+
 	duckdb::LoadInternal(loader);
 }
 }

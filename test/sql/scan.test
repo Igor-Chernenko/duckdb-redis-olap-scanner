@@ -1,0 +1,29 @@
+# name: test/sql/scan.test
+# group [redduck]
+
+statement ok
+PRAGMA enable_verification
+
+# Load extension
+statement ok
+LOAD 'build/release/extension/redduck/redduck.duckdb_extension'
+
+statement ok
+SELECT redis_connect(host) FROM (SELECT '127.0.0.1:6379' AS host);
+
+
+statement ok
+SELECT redis_connect('127.0.0.1:6379');
+
+# Verify scan results (ensure these keys exist before running tests)
+query I
+SELECT COUNT(*)::INTEGER FROM redis_scan('testkey:*');
+----
+10
+
+query T
+SELECT key_name FROM redis_scan('testkey:*') ORDER BY key_name LIMIT 3;
+----
+testkey:0001
+testkey:0002
+testkey:0003

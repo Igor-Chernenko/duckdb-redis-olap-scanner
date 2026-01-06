@@ -56,6 +56,8 @@ public:
 
 
   std::vector<std::string_view> RedisScan(std::string& query, RespParser& resp_parser);
+  std::string_view RedisGet(const std::string& key, RespParser& resp_parser);
+
   /*
   Reads the raw bytes back from the socket.
     - Returns a pointer to the internal 'buffer'.

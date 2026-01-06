@@ -56,11 +56,16 @@ void RedisClient::ClearBuffer(){
 }
 
 bool RedisClient::Connect(const char* host, int port) {
+    if (sock_fd != INVALID_SOCKET) {
+        CLOSE_SOCKET(sock_fd);
+        sock_fd = INVALID_SOCKET;
+    }
+    is_connected = false;
+
     // Create socket
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd == INVALID_SOCKET) {
-        std::cerr << "ERROR: Socket creation failed error: "
-                  << GET_SOCKET_ERROR() << "\n";
+        std::cerr << "ERROR: socket() failed error: " << GET_SOCKET_ERROR() << "\n";
         return false;
     }
 
@@ -147,7 +152,7 @@ std::vector<RespObject> RedisClient::CheckedReadResponse(RespParser& resp_parser
 
 bool RedisClient::CheckedSend(const std::string& package) {
     if (send(sock_fd, package.c_str(), package.size(), 0) == -1) {
-        std::cerr << "ERROR: Socket send failed error: ";
+        std::cerr << "ERROR: Socket send failed error: " ;
         return false;
     }
     return true;
@@ -200,4 +205,33 @@ std::vector<std::string_view> RedisClient::RedisScan(std::string& query, RespPar
         }
     }
     return intermediate_buffer;
+}
+
+std::string_view RedisClient::RedisGet(const std::string& key, RespParser& parser){
+    parser.ClearObjects();
+    ClearBuffer();
+    if (!is_connected) { //should be done by higher level duckdb extension function calls, leaving for now
+        bool conn_result = Connect(host.c_str(), port);
+        if (!conn_result) {
+            std::cerr << "ERROR: connection failed, unhandeled case.\n";
+            return "";
+        }
+    }
+
+    std::string msg = parser.BuildGet(key);
+    if(!CheckedSend(msg)){
+      std::cerr << "ERROR: Could not send a Get Command for key" <<key;
+      return "";
+    }
+    CheckedReadResponse(parser);
+    auto objects = parser.GetObjects();
+    if(objects.size() < 1){
+      std::cerr << "ERROR: no objects passed back when expecting at least one";
+      return "";
+    }
+    if(objects[0].type == RespType::NULL_VAL){
+      std::cerr << "ERROR: Value not found, NULL type returned";
+      return "";
+    }
+    return objects[0].AsString();
 }

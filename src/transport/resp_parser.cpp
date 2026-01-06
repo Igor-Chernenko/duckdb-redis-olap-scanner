@@ -162,6 +162,17 @@ std::string RespParser::BuildScan(const std::string& cursor,
     return cmd;
 }
 
+std::string RespParser::BuildGet(const std::string& key) {
+    std::string cmd;
+
+    cmd += "*2\r\n";
+    cmd += "$3\r\nGET\r\n";
+    cmd += "$" + std::to_string(key.length()) + "\r\n" +
+           key + "\r\n";
+
+    return cmd;
+}
+
 // testing functions ------------------------------------------------------------------
 
 void RespParser::PrintIndent(int indent) {

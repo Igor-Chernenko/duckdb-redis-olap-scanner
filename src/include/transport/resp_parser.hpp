@@ -50,6 +50,7 @@ public:
   std::vector<RespObject> GetObjects();
   void PrintResp(const RespObject& obj, int indent = 0);
   std::string BuildScan(const std::string& cursor, const std::string& pattern);
+  std::string BuildGet(const std::string& pattern);
   void SqlToResp(std::string &query);
   void ClearObjects() { RespObjects.clear(); }
 private:
